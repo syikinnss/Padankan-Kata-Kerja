@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TAYO - Padankan Kata Kerja | Created by Teacher Vi</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Canvas Confetti -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <!-- MediaPipe Camera Utils & Hands -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Nunito:wght@700;900&display=swap');
+
+    * {
+      font-family: 'Fredoka', 'Nunito', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* Tayo Color Palette Variables */
+    :root {
+      --tayo-blue: #0066FF;
+      --tayo-dark-blue: #0044CC;
+      --gani-red: #FF3333;
+      --lani-yellow: #FFCC00;
+      --rogi-green: #00CC44;
+    }
+
+    /* Glassmorphism panels */
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 4px solid var(--tayo-blue);
+      box-shadow: 0 12px 32px rgba(0, 102, 255, 0.25);
+    }
+
+    .glass-dark {
+      background: rgba(7, 24, 49, 0.82);
+      backdrop-filter: blur(10px);
+      border: 3px solid var(--lani-yellow);
+    }
+
+    /* Pulsing & animations */
+    @keyframes pulse-glow {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 15px rgba(255, 204, 0, 0.6); }
+      50% { transform: scale(1.03); box-shadow: 0 0 30px rgba(255, 204, 0, 0.9); }
+    }
+
+    .pulse-btn {
+      animation: pulse-glow 2s infinite;
+    }
+
+    /* Laser Cursor and Dwell Meter */
+    #laser-cursor {
+      position: fixed;
+      pointer-events: none;
+      z-index: 9999;
+      transform: translate(-50%, -50%);
+      transition: width 0.1s, height 0.1s;
+    }
+
+    .cursor-dot {
+      width: 24px;
+      height: 24px;
+      background: #FF3333;
+      border: 3px solid #FFFFFF;
+      border-radius: 50%;
+      box-shadow: 0 0 15px #FF3333, 0 0 30px #FFCC00;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    .cursor-laser-ring {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 68px;
+      height: 68px;
+    }
+
+    .cursor-laser-ring circle {
+      fill: none;
+      stroke-width: 6;
+      stroke-dasharray: 188;
+      stroke-dashoffset: 188;
+      transform: rotate(-90deg);
+      transform-origin: 50% 50%;
+      transition: stroke-dashoffset 0.05s linear;
+    }
+
+    /* Card styling */
+    .selectable-card {
+      transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      cursor: pointer;
+    }
+
+    .selectable-card.hovered {
+      transform: scale(1.06);
+      border-color: var(--lani-yellow) !important;
+      box-shadow: 0 0 25px rgba(255, 204, 0, 0.8) !important;
+    }
+
+    .selectable-card.selected-left {
+      border-color: var(--tayo-blue) !important;
+      background: #E6F0FF !important;
+      box-shadow: 0 0 20px rgba(0, 102, 255, 0.7) !important;
+      transform: scale(1.04);
+    }
+
+    .selectable-card.matched {
+      opacity: 0.2;
+      pointer-events: none;
+      transform: scale(0.9);
+      filter: grayscale(80%);
+    }
+
+    /* Tayo Bus Badge Header */
+    .tayo-badge {
+      background: linear-gradient(135deg, var(--tayo-blue), var(--tayo-dark-blue));
+      border: 3px solid var(--lani-yellow);
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-800 h-screen w-screen overflow-hidden select-none">
+
+  <!-- FULLSCREEN WEBCAM BACKGROUND -->
+  <video id="webcam" class="fixed inset-0 w-full h-full object-cover -scale-x-100 z-0 opacity-90" autoplay playsinline muted></video>
+  <canvas id="camera-canvas" class="hidden"></canvas>
+
+  <!-- WEBCAM OVERLAY SHADE -->
+  <div class="fixed inset-0 bg-slate-950/20 z-0 pointer-events-none"></div>
+
+  <!-- LASER CURSOR WITH DWELL TIMER RING -->
+  <div id="laser-cursor">
+    <div class="cursor-dot"></div>
+    <svg class="cursor-laser-ring">
+      <circle cx="34" cy="34" r="30" stroke="#FFCC00" id="dwell-progress-circle"></circle>
+    </svg>
+    <div id="finger-indicator" class="absolute -bottom-7 left-1/2 -translate-x-1/2 bg-yellow-400 text-blue-900 font-extrabold text-[11px] px-2 py-0.5 rounded-full shadow border border-white whitespace-nowrap">
+      👈 JARI TELUNJUK
+    </div>
+  </div>
+
+  <!-- START OVERLAY (ACTIVATE CAMERA) -->
+  <div id="start-screen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md">
+    <div class="glass-panel max-w-lg w-full rounded-3xl p-6 text-center space-y-5 relative overflow-hidden">
+      
+      <!-- Decorative Bus Roof Accent -->
+      <div class="absolute -top-3 left-0 right-0 h-5 bg-gradient-to-r from-red-500 via-yellow-400 to-green-500"></div>
+
+      <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full tayo-badge text-white font-bold text-sm shadow">
+        <span>🚌 TAYO THE LITTLE BUS</span>
+      </div>
+
+      <h1 class="text-3xl md:text-4xl font-black text-blue-700 tracking-wide uppercase leading-tight">
+        TAYO – PADANKAN KATA KERJA
+      </h1>
+
+      <p class="text-slate-600 font-bold text-base">
+        Aktiviti Pembelajaran Interaktif Bahasa Melayu<br>
+        <span class="text-xs text-blue-600 font-extrabold bg-blue-100 px-3 py-1 rounded-full inline-block mt-1">
+          ✨ Created by Teacher Vi ✨
+        </span>
+      </p>
+
+      <div class="bg-blue-50 border-2 border-blue-200 rounded-2xl p-4 text-left space-y-2 text-sm text-slate-700">
+        <div class="font-extrabold text-blue-900 text-center text-base mb-1">🎮 CARA BERMAIN:</div>
+        <p>1️⃣ Benarkan kebenaran kamera (webcam).</p>
+        <p>2️⃣ Tunjuk **Jari Telunjuk** ke arah gambar perbuatan di sebelah kiri (tahan 0.6 saat).</p>
+        <p>3️⃣ Kemudian gerakkan jari ke kata kerja yang betul di sebelah kanan (tahan 0.6 saat).</p>
+        <p>4️⃣ Kumpul markah tertinggi & lengkapkan 10 padanan!</p>
+      </div>
+
+      <!-- CAMERA ERROR MSG BOX -->
+      <div id="camera-error" class="hidden bg-red-100 border-2 border-red-400 text-red-700 p-3 rounded-xl text-xs font-bold">
+        ⚠️ Kamera gagal diakses. Sila pastikan anda membenarkan akses kamera pada browser anda.
+      </div>
+
+      <button id="btn-activate-camera" class="pulse-btn w-full py-4 bg-gradient-to-r from-yellow-400 to-amber-500 text-blue-950 font-black text-xl rounded-2xl border-4 border-white shadow-xl hover:brightness-110 active:scale-95 transition flex items-center justify-center gap-3">
+        <span>📷</span>
+        <span>ACTIVATE CAMERA & MAIN</span>
+      </button>
+
+      <p class="text-[11px] text-slate-400 font-semibold">
+        *Boleh juga mengawal menggunakan tetikus (mouse) jika tiada webcam.
+      </p>
+    </div>
+  </div>
+
+  <!-- GAMEPLAY INTERFACE -->
+  <div id="game-interface" class="relative z-10 h-full w-full flex flex-col justify-between p-3 md:p-5 pointer-events-none">
+    
+    <!-- TOP HUD BAR -->
+    <header class="w-full max-w-5xl mx-auto glass-panel rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 pointer-events-auto">
+      
+      <!-- Title & Author -->
+      <div class="flex items-center gap-3">
+        <div class="w-12 h-12 bg-blue-600 rounded-xl border-2 border-yellow-300 flex items-center justify-center text-2xl shadow">
+          🚌
+        </div>
+        <div>
+          <h2 class="font-black text-blue-800 text-base md:text-lg leading-none">TAYO: KATA KERJA</h2>
+          <span class="text-[11px] font-extrabold text-red-500 uppercase tracking-wider">Created by Teacher Vi</span>
+        </div>
+      </div>
+
+      <!-- Progress Bar -->
+      <div class="flex-1 max-w-xs mx-2">
+        <div class="flex justify-between text-xs font-extrabold text-blue-900 mb-1">
+          <span>KEMAJUAN</span>
+          <span id="progress-text">0 / 10</span>
+        </div>
+        <div class="w-full h-4 bg-slate-200 rounded-full border-2 border-blue-400 overflow-hidden p-0.5">
+          <div id="progress-fill" class="h-full bg-gradient-to-r from-green-400 to-emerald-500 rounded-full transition-all duration-300 w-0"></div>
+        </div>
+      </div>
+
+      <!-- Score & Combo -->
+      <div class="flex items-center gap-3">
+        <div class="bg-yellow-400 border-2 border-yellow-500 px-3 py-1 rounded-xl text-center shadow-sm">
+          <div class="text-[10px] font-extrabold text-yellow-950 uppercase">MARKAH</div>
+          <div id="score-val" class="font-black text-blue-950 text-xl leading-none">0</div>
+        </div>
+
+        <div id="combo-badge" class="bg-red-500 border-2 border-white px-3 py-1 rounded-xl text-center text-white shadow-md transform scale-90 transition-all">
+          <div class="text-[9px] font-black tracking-widest uppercase">COMBO</div>
+          <div id="combo-val" class="font-black text-xl leading-none">x1</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- CENTER ACTIVITY CONTAINER -->
+    <main class="w-full max-w-5xl mx-auto flex-1 my-2 grid grid-cols-2 gap-4 md:gap-12 items-center justify-center px-2">
+      
+      <!-- LEFT COLUMN: 3 PICTURE CARDS -->
+      <div id="left-cards-container" class="space-y-3 md:space-y-4 flex flex-col justify-center">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <!-- RIGHT COLUMN: 3 WORD CARDS -->
+      <div id="right-cards-container" class="space-y-3 md:space-y-4 flex flex-col justify-center">
+        <!-- Rendered dynamically -->
+      </div>
+
+    </main>
+
+    <!-- BOTTOM INSTRUCTION TOAST -->
+    <footer class="w-full max-w-xl mx-auto glass-dark rounded-full py-2 px-5 text-center text-white font-extrabold text-sm md:text-base border-2 border-yellow-400 shadow-lg pointer-events-auto flex items-center justify-between">
+      <span id="status-toast" class="w-full text-yellow-300">
+        👈 Tunjuk gambar perbuatan di sebelah kiri!
+      </span>
+    </footer>
+
+  </div>
+
+  <!-- VICTORY END SCREEN -->
+  <div id="end-screen" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-lg">
+    <div class="glass-panel max-w-md w-full rounded-3xl p-6 text-center space-y-4 relative overflow-hidden border-4 border-yellow-400">
+      
+      <div class="text-6xl animate-bounce my-2">🏆</div>
+
+      <h2 class="text-2xl md:text-3xl font-black text-red-500 uppercase tracking-wide">
+        TAHNIAH, PENGEMBARA CILIK!
+      </h2>
+
+      <!-- BADGE -->
+      <div class="bg-gradient-to-r from-yellow-300 via-amber-400 to-yellow-500 text-blue-950 p-3 rounded-2xl border-2 border-white shadow-lg">
+        <div class="text-xs font-black uppercase text-amber-900 tracking-wider">LENCANA ANUGERAH</div>
+        <div class="font-black text-lg md:text-xl">🌟 JUARA PADANAN KATA KERJA 🌟</div>
+      </div>
+
+      <!-- STATS -->
+      <div class="grid grid-cols-2 gap-3 text-left">
+        <div class="bg-blue-50 border border-blue-200 p-3 rounded-xl text-center">
+          <div class="text-xs font-bold text-slate-500">JUMLAH MARKAH</div>
+          <div id="final-score" class="text-2xl font-black text-blue-700">0</div>
+        </div>
+        <div class="bg-green-50 border border-green-200 p-3 rounded-xl text-center">
+          <div class="text-xs font-bold text-slate-500">PADANAN BETUL</div>
+          <div id="final-matches" class="text-2xl font-black text-green-700">10 / 10</div>
+        </div>
+      </div>
+
+      <div class="text-xs font-extrabold text-slate-500">
+        Disemak & Disahkan oleh: <span class="text-blue-600">Teacher Vi</span>
+      </div>
+
+      <button id="btn-restart" class="pulse-btn w-full py-3.5 bg-gradient-to-r from-blue-600 to-blue-800 text-white font-black text-lg rounded-xl border-2 border-white shadow-lg hover:brightness-110 active:scale-95 transition">
+        🔄 MAIN SEMULA
+      </button>
+
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT GAME LOGIC -->
+  <script>
+    /* =========================================================
+       1. DATA SET: 10 ACTION PAIRS (KATA KERJA & SVG CARTOONS)
+       ========================================================= */
+    const ALL_PAIRS = [
+      {
+        id: 'makan',
+        word: 'MAKAN',
+        label: 'Makan Nasi',
+        svg: `<svg viewBox="0 0 100 100" class="w-full h-full">
+                <circle cx="50" cy="50" r="45" fill="#FFE4E6"/>
+                <path d="M20 55 C20 75, 80 75, 80 55 Z" fill="#E11D48"/>
+                <path d="M25 55 C25 40, 75 40, 75 55 Z" fill="#FFFFFF"/>
+                <circle cx="40" cy="45" r="4" fill="#334155"/><circle cx="60" cy="45" r="4" fill="#334155"/>
+                <path d="M45 52 Q50 56 55 52" stroke="#334155" stroke-width="3" fill="none"/>
+                <path d="M65 30 L80 60" stroke="#F59E0B" stroke-width="5" stroke-linecap="round"/>
+                <path d="M72 27 L87 57" stroke="#F59E0B" stroke-width="5" stroke-linecap="round"/>
+              </svg>`
+      },
+      {
+        id: 'minum',
+        word: 'MINUM',
+        label: 'Minum Air',
+        svg: `<svg viewBox="0 0 100 100" class="w-full h-full">
+                <circle cx="50" cy="50" r="45" fill="#E0F2FE"/>
+                <rect x="32" y="30" width="36" height="50" rx="6" fill="#38BDF8" opacity="0.8"/>
+                <path d="M35 45 Q50 50 65 45 L65 75 Q50 78 35 75 Z" fill="#0284C7"/>
+                <line x1="58" y1="15" x2="45" y2="65" stroke="#EF4444" stroke-width="6" stroke-linecap="round"/>
+                <circle cx="42" cy="55" r="3" fill="#FFF"/><circle cx="52" cy="62" r="2" fill="#FFF"/>
+              </svg>`
+      },
+      {
+        id: 'membaca',
+        word: 'MEMBACA',
+        label: 'Membaca Buku',
+        svg: `<svg viewBox="0 0 100 100" class="w-full h-full">
+                <circle cx="50" cy="50" r="45" fill="#FEF3C7"/>
+                <path d="M15 40 Q50 30 50 75 Q15 65 15 40 Z" fill="#F59E0B"/>
+                <path d="M85 40 Q50 30 50 75 Q85 65 85 40 Z" fill="#D97706"/>
+                <path d="M20 43 Q48 35 48 70 Q20 62 20 43 Z" fill="#FFF"/>
+                <path d="M80 43 Q52 35 52 70 Q80 62 80 43 Z" fill="#FFF"/>
+                <line x1="25" y1="50" x2="43" y2="47" stroke="#94A3B8" stroke-width="2"/>
+                <line x1="25" y1="57" x2="43" y2="54" stroke="#94A3B8" stroke-width="2"/>
+              </svg>`
+      },
+      {
+        id: 'menulis',
+        word: 'MENULIS',
+        label: 'Menulis Pensel',
+        svg: `<svg viewBox="0 0 100 100" class="w-full h-full">
+                <circle cx="50" cy="50" r="45" fill="#F0FDF4"/>
+                <rect x="20" y="25" width="45" height="55" rx="4" fill="#FFF" stroke="#86EFAC" stroke-width="4"/>
+                <line x1="28" y1="38" x2="55" y2="38" stroke="#CBD5E1" stroke-width="3"/>
+                <line x1="28" y1="48" x2="50" y2="48" stroke="#CBD5E1" stroke-width="3"/>
+                <g transform="rotate(-35 60 40)">
+                  <polygon points="50,20 65,20 65,70 50,70" fill="#FACC15"/>
+                  <polygon points="50,70 65,70 57.5,85" fill="#FDBA74"/>
+                  <polygon points="55,80 60,80 57.5,85" fill="#1E293B"/>
+                </g>
+              </svg>`
+      },
+      {
+        id: 'berlari',
+        word: 'BERLARI',
+        label: 'Berlari Pantas',
+        svg: `<svg viewBox="0 0 100 100" class="w-full h-full">
+                <circle cx="50" cy="50" r="45" fill="#FFEDD5"/>
+                <circle cx="60" cy="25" r="10" fill="#EA580C"/>
+                <path d="M55 35 L40 50 L25 45" stroke="#EA580C" stroke-width="7" stroke-linecap="round" fill="none"/>
+                <path d="M50 48 L65 60 L80 55" stroke="#EA580C" stroke-width="7" stroke-linecap="round" fill="none"/>
+                <path d="M45 50 L30 75 L15 80" stroke="#C2410C" stroke-width="7" stroke-linecap="round" fill="none"/>
+                <path d="M55 50 L70 70 L60 90" stroke="#C2410C" stroke-width="7" stroke-linecap="round" fill="none"/>
+              </svg>`
+      },
+      {
+        id: 'tidur',
+        word: 'TIDUR',
+        label: 'Tidur Katil',
+        svg: `<svg viewBox="0 0 100 100" class="w-full h-full">
+                <circle cx="50" cy="50" r="45" fill="#EEF2FF"/>
+                <path d="M15 65 L85 65 L85 75 L15 75 Z" fill="#6366F1"/>
+                <rect x="20" y="48" width="60" height="20" rx="5" fill="#818CF8"/>
+                <circle cx="32" cy="45" r="8" fill="#FFF"/>
+                <path d="M60 20 Q70 20 75 30 Q65 32 60 20 Z" fill="#FACC15"/>
+                <text x="68" y="22" font-size="14" font-weight="bold" fill="#818CF8">Zzz</text>
+              </svg>`
+      },
+      {
+        id: 'menyapu',
+        word: 'MENYAPU',
+        label: 'Menyapu Sampah',
+        svg: `<svg viewBox="0 0 100 100" class="w-full h-full">
+                <circle cx="50" cy="50" r="45" fill="#ECFDF5"/>
+                <line x1="30" y1="20" x2="60" y2="65" stroke="#78350F" stroke-width="7" stroke-linecap="round"/>
+                <path d="M50 60 L78 78 L60 88 L40 70 Z" fill="#D97706"/>
+                <line x1="55" y1="68" x2="70" y2="83" stroke="#F59E0B" stroke-width="3"/>
+                <circle cx="78" cy="82" r="2" fill="#64748B"/><circle cx="84" cy="76" r="3" fill="#64748B"/>
+              </svg>`
+      },
+      {
+        id: 'melompat',
+        word: 'MELOMPAT',
+        label: 'Melompat Tinggi',
+        svg: `<svg viewBox="0 0 100 100" class="w-full h-full">
+                <circle cx="50" cy="50" r="45" fill="#F0FDFA"/>
+                <circle cx="50" cy="22" r="10" fill="#0D9488"/>
+                <path d="M50 32 L50 55" stroke="#0D9488" stroke-width="7" stroke-linecap="round"/>
+                <path d="M50 38 L25 25 M50 38 L75 25" stroke="#0D9488" stroke-width="7" stroke-linecap="round"/>
+                <path d="M50 55 L30 80 M50 55 L70 80" stroke="#14B8A6" stroke-width="7" stroke-linecap="round"/>
+                <path d="M20 88 Q50 78 80 88" stroke="#F59E0B" stroke-width="4" stroke-dasharray="4 4" fill="none"/>
+              </svg>`
+      },
+      {
+        id: 'bermain',
+        word: 'BERMAIN',
+        label: 'Bermain Bola',
+        svg: `<svg viewBox="0 0 100 100" class="w-full h-full">
+                <circle cx="50" cy="50" r="45" fill="#EFF6FF"/>
+                <circle cx="50" cy="55" r="24" fill="#FFF" stroke="#1E40AF" stroke-width="4"/>
+                <polygon points="50,40 57,46 54,54 46,54 43,46" fill="#1E40AF"/>
+                <polygon points="50,70 56,64 53,58 47,58 44,64" fill="#1E40AF"/>
+                <path d="M78 30 L85 20 M82 40 L92 38" stroke="#F59E0B" stroke-width="4" stroke-linecap="round"/>
+              </svg>`
+      },
+      {
+        id: 'membuang',
+        word: 'MEMBUANG',
+        label: 'Membuang Sampah',
+        svg: `<svg viewBox="0 0 100 100" class="w-full h-full">
+                <circle cx="50" cy="50" r="45" fill="#FAF5FF"/>
+                <rect x="35" y="45" width="30" height="40" rx="4" fill="#9333EA"/>
+                <rect x="30" y="38" width="40" height="7" rx="2" fill="#7E22CE"/>
+                <path d="M45 38 V32 Q45 30 50 30 Q55 30 55 32 V38" stroke="#7E22CE" stroke-width="3" fill="none"/>
+                <circle cx="50" cy="20" r="4" fill="#EF4444"/>
+                <path d="M50 24 L50 30" stroke="#EF4444" stroke-width="2" stroke-dasharray="2 2"/>
+              </svg>`
+      }
+    ];
+
+    /* =========================================================
+       2. AUDIO SYNTH (WEB AUDIO API - NO EXTERNAL FILES NEEDED)
+       ========================================================= */
+    class SoundEffects {
+      constructor() {
+        this.ctx = null;
+      }
+
+      init() {
+        if (!this.ctx) {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+
+      playTone(freq, type = 'sine', duration = 0.1, gainVal = 0.1) {
+        if (!this.ctx) return;
+        try {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+          gain.gain.setValueAtTime(gainVal, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + duration);
+        } catch(e){}
+      }
+
+      playHover() {
+        this.playTone(520, 'sine', 0.05, 0.04);
+      }
+
+      playSelect() {
+        this.playTone(660, 'triangle', 0.12, 0.1);
+      }
+
+      playCorrect() {
+        this.init();
+        const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+        notes.forEach((f, i) => {
+          setTimeout(() => this.playTone(f, 'triangle', 0.18, 0.15), i * 70);
+        });
+      }
+
+      playWrong() {
+        this.init();
+        this.playTone(200, 'sawtooth', 0.2, 0.15);
+        setTimeout(() => this.playTone(150, 'sawtooth', 0.3, 0.15), 120);
+      }
+
+      playWin() {
+        this.init();
+        const melody = [
+          {f: 523.25, d: 150}, {f: 659.25, d: 150}, {f: 783.99, d: 150},
+          {f: 1046.50, d: 400}, {f: 880, d: 200}, {f: 1046.50, d: 600}
+        ];
+        let now = 0;
+        melody.forEach(m => {
+          setTimeout(() => this.playTone(m.f, 'triangle', m.d / 1000, 0.2), now);
+          now += m.d;
+        });
+      }
+    }
+
+    const sfx = new SoundEffects();
+
+    /* =========================================================
+       3. GAME STATE MANAGEMENT
+       ========================================================= */
+    let remainingPool = [];
+    let activeLeftItems = [];
+    let activeRightItems = [];
+    
+    let selectedLeftId = null;
+    let score = 0;
+    let combo = 1;
+    let matchedCount = 0;
+    const TOTAL_PAIRS = 10;
+
+    // Dwell timer (0.6s)
+    const DWELL_TIME_MS = 600;
+    let currentHoverEl = null;
+    let hoverStartTime = 0;
+
+    // Cursor coordinates
+    let cursorX = window.innerWidth / 2;
+    let cursorY = window.innerHeight / 2;
+
+    /* =========================================================
+       4. DOM ELEMENTS
+       ========================================================= */
+    const startScreen = document.getElementById('start-screen');
+    const endScreen = document.getElementById('end-screen');
+    const btnActivateCam = document.getElementById('btn-activate-camera');
+    const cameraError = document.getElementById('camera-error');
+    const leftContainer = document.getElementById('left-cards-container');
+    const rightContainer = document.getElementById('right-cards-container');
+    const statusToast = document.getElementById('status-toast');
+    const scoreVal = document.getElementById('score-val');
+    const comboVal = document.getElementById('combo-val');
+    const comboBadge = document.getElementById('combo-badge');
+    const progressFill = document.getElementById('progress-fill');
+    const progressText = document.getElementById('progress-text');
+    const laserCursor = document.getElementById('laser-cursor');
+    const dwellCircle = document.getElementById('dwell-progress-circle');
+
+    /* =========================================================
+       5. GAME INITIALIZATION & FLOW
+       ========================================================= */
+    function initGame() {
+      score = 0;
+      combo = 1;
+      matchedCount = 0;
+      selectedLeftId = null;
+      remainingPool = [...ALL_PAIRS].sort(() => Math.random() - 0.5);
+
+      updateHUD();
+      loadNextBatch();
+      endScreen.classList.add('hidden');
+    }
+
+    function loadNextBatch() {
+      // Pick up to 3 items for current active set
+      const needed = 3;
+      activeLeftItems = remainingPool.splice(0, needed);
+      
+      if (activeLeftItems.length === 0) {
+        triggerVictory();
+        return;
+      }
+
+      // Right column items are shuffled copy of active left items
+      activeRightItems = [...activeLeftItems].sort(() => Math.random() - 0.5);
+      
+      renderCards();
+      setStatus("👈 Tunjuk & tahan pada GAMBAR di sebelah kiri!");
+    }
+
+    function renderCards() {
+      leftContainer.innerHTML = '';
+      rightContainer.innerHTML = '';
+
+      // Render Left Cards (Pictures)
+      activeLeftItems.forEach(item => {
+        const card = document.createElement('div');
+        card.className = `selectable-card glass-panel rounded-2xl p-3 flex flex-col items-center justify-center border-4 border-blue-500 shadow-lg h-28 md:h-36 pointer-events-auto`;
+        card.dataset.id = item.id;
+        card.dataset.side = 'left';
+
+        card.innerHTML = `
+          <div class="w-16 h-16 md:w-20 md:h-20 pointer-events-none">${item.svg}</div>
+          <span class="text-[11px] md:text-xs font-black text-blue-900 mt-1 uppercase tracking-wide pointer-events-none bg-blue-100 px-2 py-0.5 rounded-full">${item.label}</span>
+        `;
+        leftContainer.appendChild(card);
+      });
+
+      // Render Right Cards (Words)
+      activeRightItems.forEach(item => {
+        const card = document.createElement('div');
+        card.className = `selectable-card glass-panel rounded-2xl p-3 flex items-center justify-center border-4 border-yellow-400 shadow-lg h-28 md:h-36 pointer-events-auto bg-gradient-to-r from-amber-50 to-yellow-100`;
+        card.dataset.id = item.id;
+        card.dataset.side = 'right';
+
+        card.innerHTML = `
+          <span class="text-xl md:text-3xl font-black text-blue-900 tracking-wider pointer-events-none uppercase drop-shadow-sm">${item.word}</span>
+        `;
+        rightContainer.appendChild(card);
+      });
+    }
+
+    function handleCardSelection(el) {
+      const side = el.dataset.side;
+      const id = el.dataset.id;
+
+      sfx.playSelect();
+
+      if (side === 'left') {
+        // Deselect previous left card if any
+        document.querySelectorAll('#left-cards-container .selectable-card').forEach(c => {
+          c.classList.remove('selected-left');
+        });
+
+        selectedLeftId = id;
+        el.classList.add('selected-left');
+        setStatus(`👉 Gambar dipilih! Sekarang tunjuk kata kerja yang betul di sebelah kanan.`);
+      } 
+      else if (side === 'right') {
+        if (!selectedLeftId) {
+          setStatus(`⚠️ Sila pilih GAMBAR di sebelah kiri terlebih dahulu!`);
+          sfx.playWrong();
+          return;
+        }
+
+        // Check match
+        if (selectedLeftId === id) {
+          // CORRECT MATCH
+          sfx.playCorrect();
+          triggerParticleEffect(cursorX, cursorY);
+
+          score += 100 * combo;
+          combo++;
+          matchedCount++;
+          
+          updateHUD();
+
+          // Mark both left & right as matched
+          const matchedLeft = leftContainer.querySelector(`[data-id="${id}"]`);
+          const matchedRight = rightContainer.querySelector(`[data-id="${id}"]`);
+          if (matchedLeft) matchedLeft.classList.add('matched');
+          if (matchedRight) matchedRight.classList.add('matched');
+
+          selectedLeftId = null;
+
+          // Check if all current 3 batch items matched
+          const remainingActive = leftContainer.querySelectorAll('.selectable-card:not(.matched)').length;
+          if (remainingActive === 0) {
+            setTimeout(() => {
+              loadNextBatch();
+            }, 600);
+          } else {
+            setStatus(`🎉 TAHNIAH! Jawapan betul! Teruskan padankan.`);
+          }
+
+        } else {
+          // WRONG MATCH
+          sfx.playWrong();
+          combo = 1;
+          updateHUD();
+
+          setStatus(`❌ CUBA LAGI! Padanan tidak tepat.`);
+          
+          // Flash wrong card red
+          el.classList.add('bg-red-200');
+          setTimeout(() => el.classList.remove('bg-red-200'), 500);
+
+          // Clear left selection
+          selectedLeftId = null;
+          document.querySelectorAll('#left-cards-container .selectable-card').forEach(c => {
+            c.classList.remove('selected-left');
+          });
+        }
+      }
+    }
+
+    function updateHUD() {
+      scoreVal.textContent = score;
+      comboVal.textContent = `x${combo}`;
+      comboBadge.style.transform = combo > 1 ? 'scale(1.1)' : 'scale(0.9)';
+      
+      const pct = (matchedCount / TOTAL_PAIRS) * 100;
+      progressFill.style.width = `${pct}%`;
+      progressText.textContent = `${matchedCount} / ${TOTAL_PAIRS}`;
+    }
+
+    function setStatus(msg) {
+      statusToast.innerHTML = msg;
+    }
+
+    function triggerVictory() {
+      sfx.playWin();
+      confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+      
+      document.getElementById('final-score').textContent = score;
+      document.getElementById('final-matches').textContent = `${matchedCount} / ${TOTAL_PAIRS}`;
+      endScreen.classList.remove('hidden');
+    }
+
+    function triggerParticleEffect(x, y) {
+      confetti({
+        particleCount: 35,
+        spread: 60,
+        origin: { x: x / window.innerWidth, y: y / window.innerHeight }
+      });
+    }
+
+    /* =========================================================
+       6. DWELL CLICK & HOVER SYSTEM (0.6 SECOND HOLD)
+       ========================================================= */
+    function updateCursorPosition(x, y) {
+      cursorX = x;
+      cursorY = y;
+      laserCursor.style.left = `${x}px`;
+      laserCursor.style.top = `${y}px`;
+
+      // Check element under cursor
+      const targetEl = document.elementFromPoint(x, y);
+      const card = targetEl ? targetEl.closest('.selectable-card') : null;
+
+      if (card && !card.classList.contains('matched')) {
+        if (currentHoverEl !== card) {
+          // New hover target
+          if (currentHoverEl) currentHoverEl.classList.remove('hovered');
+          currentHoverEl = card;
+          currentHoverEl.classList.add('hovered');
+          hoverStartTime = performance.now();
+          sfx.playHover();
+        } else {
+          // Progress existing hover dwell
+          const elapsed = performance.now() - hoverStartTime;
+          const progress = Math.min(elapsed / DWELL_TIME_MS, 1.0);
+          
+          // Update SVG circle stroke (radius 30, circumference 188)
+          const offset = 188 - (188 * progress);
+          dwellCircle.style.strokeDashoffset = offset;
+
+          if (progress >= 1.0) {
+            // Dwell Complete! Trigger Selection
+            handleCardSelection(currentHoverEl);
+            resetDwell();
+          }
+        }
+      } else {
+        resetDwell();
+      }
+    }
+
+    function resetDwell() {
+      if (currentHoverEl) {
+        currentHoverEl.classList.remove('hovered');
+        currentHoverEl = null;
+      }
+      hoverStartTime = 0;
+      dwellCircle.style.strokeDashoffset = 188;
+    }
+
+    // Mouse Fallback Listener
+    window.addEventListener('mousemove', (e) => {
+      updateCursorPosition(e.clientX, e.clientY);
+    });
+
+    /* =========================================================
+       7. MEDIAPIPE HAND LANDMARKER (WEBCAM TRACKING)
+       ========================================================= */
+    const videoElement = document.getElementById('webcam');
+    let cameraInstance = null;
+
+    function startWebcamTracking() {
+      sfx.init();
+
+      const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6
+      });
+
+      hands.onResults((results) => {
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+          const landmarks = results.multiHandLandmarks[0];
+          // Landmark 8 is INDEX_FINGER_TIP
+          const indexTip = landmarks[8];
+
+          // Mirror X coordinate because webcam feed is mirrored
+          const screenX = (1 - indexTip.x) * window.innerWidth;
+          const screenY = indexTip.y * window.innerHeight;
+
+          updateCursorPosition(screenX, screenY);
+        }
+      });
+
+      cameraInstance = new Camera(videoElement, {
+        onFrame: async () => {
+          await hands.send({ image: videoElement });
+        },
+        width: 1280,
+        height: 720
+      });
+
+      cameraInstance.start()
+        .then(() => {
+          startScreen.classList.add('hidden');
+          initGame();
+        })
+        .catch((err) => {
+          console.error("Camera access failed:", err);
+          cameraError.classList.remove('hidden');
+        });
+    }
+
+    /* =========================================================
+       8. BUTTON EVENT LISTENERS
+       ========================================================= */
+    btnActivateCam.addEventListener('click', () => {
+      startWebcamTracking();
+    });
+
+    document.getElementById('btn-restart').addEventListener('click', () => {
+      initGame();
+    });
+
+  </script>
+</body>
+</html>
